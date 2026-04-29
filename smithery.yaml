@@ -1,0 +1,49 @@
+name: hive-subscription
+description: Recurring x402 subscription primitive. ed25519-signed renewal contracts. Pause/resume/cancel at agent-speed. Zero merchant-of-record overhead. Leapfrogs Visa's recurring-card moat.
+version: 1.0.0
+license: MIT
+author: Steve Rotzin <steve@thehiveryiq.com>
+homepage: https://github.com/srotzin/hive-subscription
+repository: https://github.com/srotzin/hive-subscription
+
+runtime: node
+entrypoint: server.js
+
+transport:
+  type: http
+  port: 3000
+
+mcp:
+  version: "2024-11-05"
+  protocol: streamable-http
+  endpoint: /mcp
+
+tools:
+  - name: create_subscription
+    description: Create a recurring x402 subscription between payer and merchant DIDs. Returns subscription_id and ed25519-signed renewal contract.
+  - name: renew_subscription
+    description: Renew a subscription for the current period. x402 gated — charges 2% of amount + $0.005 flat. Idempotent on (subscription_id, period_index).
+  - name: manage_subscription
+    description: Pause, resume, or cancel a subscription. Both payer and merchant DIDs can manage.
+  - name: list_subscriptions
+    description: List all subscriptions for a given DID (payer or merchant).
+
+payment:
+  protocol: x402
+  network: base
+  chain_id: 8453
+  asset: USDC
+  payTo: "0x15184bf50b3d3f52b60434f8942b7d52f2eb436e"
+  hive_take_pct: 2
+  renewal_fee: "2% of subscription amount + $0.005 flat per period"
+
+tags:
+  - finance
+  - subscriptions
+  - x402
+  - base
+  - usdc
+  - ed25519
+  - hive
+  - recurring-billing
+  - a2a
