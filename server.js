@@ -396,6 +396,252 @@ app.get('/v1/subscription/:id', (req, res) => {
 
 // ─── server start ─────────────────────────────────────────────────────────────
 
+// ── well-known / x402 ─────────────────────────────────────────────────────────
+
+app.get('/.well-known/x402', (_req, res) => {
+  res.json({
+    x402Version:  2,
+    cold_safe:    true,
+    service:      'hive-subscription',
+    version:      '1.0.0',
+    brand_color:  '#C08D23',
+    payTo:        '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+    network:      'base',
+    chain_id:     8453,
+    asset:        'USDC',
+    contract:     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    facilitator: {
+      url:                    'https://hivemorph.onrender.com/v1/x402',
+      supported_schemes:      ['exact'],
+      supported_networks:     ['eip155:8453'],
+      syncFacilitatorOnStart: false,
+      cold_safe:              true
+    },
+    resources: [
+      {
+        path:        '/v1/subscription/renew',
+        method:      'POST',
+        description: 'Renew a subscription. Fee: 2% of amount_atomic + $0.005 flat. Hive take: 2%.',
+        'x-pricing': {
+          scheme: 'exact',
+          asset: 'USDC',
+          hive_take_pct: 2,
+          flat_fee_atomic: 5000,
+          variable_pct: 2,
+          payTo: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+          description: '2% of amount_atomic + 5000 micro-USDC flat per renewal.',
+        },
+        'x-payment-info': {
+          scheme: 'exact',
+          asset: 'USDC',
+          hive_take_pct: 2,
+          flat_fee_atomic: 5000,
+          variable_pct: 2,
+          payTo: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+          description: '2% of amount_atomic + 5000 micro-USDC flat per renewal.',
+        }
+      },
+      {
+        path:        '/v1/subscription/create',
+        method:      'POST',
+        description: 'Create a recurring subscription contract. No payment at create.',
+        'x-pricing':      { scheme: 'free', note: 'Subscription create is free. Renewals are x402 gated.' },
+        'x-payment-info': { scheme: 'free', note: 'Subscription create is free. Renewals are x402 gated.' }
+      },
+      {
+        path:        '/v1/subscription/pause',
+        method:      'POST',
+        description: 'Pause a subscription. No fee.',
+        'x-pricing':      { scheme: 'free', note: 'Pause is free.' },
+        'x-payment-info': { scheme: 'free', note: 'Pause is free.' }
+      },
+      {
+        path:        '/v1/subscription/cancel',
+        method:      'POST',
+        description: 'Cancel a subscription. No fee.',
+        'x-pricing':      { scheme: 'free', note: 'Cancel is free.' },
+        'x-payment-info': { scheme: 'free', note: 'Cancel is free.' }
+      }
+    ],
+    discovery_companions: {
+      agent_card: '/.well-known/agent-card.json',
+      ap2:        '/.well-known/ap2.json',
+      openapi:    '/.well-known/openapi.json'
+    },
+    disclaimers: {
+      not_a_security: true,
+      not_custody:    true,
+      not_insurance:  true,
+      signal_only:    true
+    }
+  });
+});
+
+// ── well-known / agent-card.json (A2A 0.1) ────────────────────────────────────
+
+app.get('/.well-known/agent-card.json', (req, res) => {
+  const pubkey = (typeof getPublicKeyB64 === 'function')
+    ? getPublicKeyB64()
+    : (typeof spectral !== 'undefined' ? (spectral.publicKeyB64 || null) : null);
+  res.json({
+    name:        'hive-subscription',
+    version:     '1.0.0',
+    description: 'Recurring x402 subscription primitive. ed25519-signed renewal contracts. Pause/resume/cancel at agent-speed.',
+    brand_color: '#C08D23',
+    did:         `did:web:${req.hostname}`,
+    protocol:    'A2A/0.1',
+    capabilities: [
+      'subscription.create',
+      'subscription.renew',
+      'subscription.pause',
+      'subscription.resume',
+      'subscription.cancel',
+      'subscription.list'
+    ],
+    spectral: {
+      public_key:    pubkey,
+      signature_algo: 'ed25519',
+      jwks_endpoint: '/.well-known/jwks.json'
+    },
+    treasury: {
+      address:  '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+      network:  'base',
+      chain_id: 8453,
+      asset:    'USDC'
+    },
+    payment: {
+      protocol: 'x402',
+      version:  '2',
+      network:  'base',
+      chain_id: 8453,
+      asset:    'USDC',
+      contract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      payTo:    '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e'
+    },
+    mcp_endpoint: '/mcp',
+    tools: ['create_subscription', 'renew_subscription', 'manage_subscription', 'list_subscriptions']
+  });
+});
+
+// ── well-known / ap2.json (AP2 0.1) ───────────────────────────────────────────
+
+app.get('/.well-known/ap2.json', (_req, res) => {
+  res.json({
+    ap2_version:   '0.1',
+    service:       'hive-subscription',
+    accepted_tokens: [
+      {
+        symbol:   'USDC',
+        contract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        network:  'base',
+        chain_id: 8453,
+        decimals: 6
+      },
+      {
+        symbol:   'USDT',
+        contract: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+        network:  'base',
+        chain_id: 8453,
+        decimals: 6,
+        role:     'alternate'
+      }
+    ],
+    networks:           [{ name: 'base', chain_id: 8453, role: 'primary' }],
+    payment_protocols:  ['x402/v2'],
+    settlement: {
+      finality:  'on-chain',
+      network:   'base',
+      chain_id:  8453,
+      payTo:     '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e'
+    },
+    paid_endpoints: [
+      { path: '/v1/subscription/renew', method: 'POST', description: 'Renew a subscription. Fee: 2% of amount_atomic + $0.005 flat. Hive take: 2%.' }
+    ],
+    free_endpoints: [
+      { path: '/v1/subscription/create', method: 'POST', description: 'Create a recurring subscription contract. No payment at create.' },
+      { path: '/v1/subscription/pause', method: 'POST', description: 'Pause a subscription. No fee.' },
+      { path: '/v1/subscription/cancel', method: 'POST', description: 'Cancel a subscription. No fee.' }
+    ],
+    brand_color: '#C08D23'
+  });
+});
+
+// ── well-known / openapi.json (OpenAPI 3.0.3 + x-pricing + x-payment-info) ────
+
+app.get('/.well-known/openapi.json', (_req, res) => {
+  res.json({
+    openapi: '3.0.3',
+    info: {
+      title:       'hive-subscription API',
+      version:     '1.0.0',
+      description: 'Recurring x402 subscription primitive. ed25519-signed renewal contracts. Pause/resume/cancel at agent-speed.',
+      contact:     { name: 'The Hivery', url: 'https://thehiveryiq.com' }
+    },
+    servers: [{ url: 'https://hive-subscription.onrender.com', description: 'Production (Render)' }],
+    paths: {
+      '/v1/subscription/renew': {
+        post: {
+          operationId: 'v1_subscription_renew',
+          summary: 'Renew a subscription. Fee: 2% of amount_atomic + $0.005 flat. Hive take: 2%.',
+          'x-pricing': {
+          scheme: 'exact',
+          asset: 'USDC',
+          hive_take_pct: 2,
+          flat_fee_atomic: 5000,
+          variable_pct: 2,
+          payTo: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+          description: '2% of amount_atomic + 5000 micro-USDC flat per renewal.'
+          },
+          'x-payment-info': {
+          scheme: 'exact',
+          asset: 'USDC',
+          hive_take_pct: 2,
+          flat_fee_atomic: 5000,
+          variable_pct: 2,
+          payTo: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+          description: '2% of amount_atomic + 5000 micro-USDC flat per renewal.'
+          },
+          responses: {
+            '200': { description: 'Success.' },
+            '402': { description: 'Payment Required — x402 challenge.' },
+            '400': { description: 'Validation error.' }
+          }
+        }
+      },
+      '/v1/subscription/create': {
+        post: {
+          operationId: 'v1_subscription_create',
+          summary: 'Create a recurring subscription contract. No payment at create.',
+          responses: {
+            '200': { description: 'Success.' },
+            '400': { description: 'Validation error.' }
+          }
+        }
+      },
+      '/v1/subscription/pause': {
+        post: {
+          operationId: 'v1_subscription_pause',
+          summary: 'Pause a subscription. No fee.',
+          responses: {
+            '200': { description: 'Success.' },
+            '400': { description: 'Validation error.' }
+          }
+        }
+      },
+      '/v1/subscription/cancel': {
+        post: {
+          operationId: 'v1_subscription_cancel',
+          summary: 'Cancel a subscription. No fee.',
+          responses: {
+            '200': { description: 'Success.' },
+            '400': { description: 'Validation error.' }
+          }
+        }
+      }
+    }
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`hive-subscription listening on :${PORT}`);
 });
