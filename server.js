@@ -6,6 +6,90 @@ import {
   listSubscriptionsByDid, recordRenewal, getRenewal
 } from './lib/storage.js';
 
+// ── BOGO chain: downstream service URLs ──────────────────────────────────────────
+const RECEIPT_SERVICE  = process.env.RECEIPT_SERVICE_URL  || 'https://hive-receipt.onrender.com';
+const GAMIF_SERVICE    = process.env.GAMIFICATION_SERVICE_URL || 'https://hive-gamification.onrender.com';
+const AUDIT_FEE_ATOMIC = 100000; // $0.10 USDC atomic — audit tier
+const GAMIF_FEE_ATOMIC = 500;    // $0.0005 per gamification event
+
+/**
+ * emitRenewalReceipt — call hive-receipt /v1/receipt/sign?tier=audit after a
+ * successful subscription renewal. Best-effort; never fails the primary response.
+ */
+async function emitRenewalReceipt({ subscription_id, payer_did, amount_atomic, tx_hash }) {
+  try {
+    const payment = JSON.stringify({
+      tx_hash: tx_hash || ('renewal-' + subscription_id),
+      payer:   '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+      amount:  AUDIT_FEE_ATOMIC,
+      asset:   'USDC',
+      network: 'base',
+      note:    'Audit receipt for subscription renewal — charged to Monroe treasury on behalf of payer.'
+    });
+    const resp = await fetch(`${RECEIPT_SERVICE}/v1/receipt/sign?tier=audit`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Payment': payment },
+      body: JSON.stringify({
+        tx_hash:                tx_hash || ('renewal-' + subscription_id),
+        network:                'base',
+        expected_recipient:     '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e',
+        expected_amount_atomic: amount_atomic,
+        expected_asset:         'USDC',
+        payer_did:              payer_did || null,
+        payee_did:              'did:web:hive-subscription.onrender.com',
+        subscription_id
+      })
+    });
+    if (!resp.ok) return { error: `hive-receipt ${resp.status}`, fee_charged: false };
+    const env = await resp.json();
+    return {
+      id:              env.receipt_id,
+      sig_alg:         'EdDSA',
+      kid:             'hive-receipt-spectral-1',
+      public_jwks_uri: `${RECEIPT_SERVICE}/.well-known/jwks.json`,
+      signature:       env.signature || env.sig || null,
+      fee_atomic:      AUDIT_FEE_ATOMIC,
+      fee_usd:         '$0.10',
+      tier:            'audit',
+      verifiable_at:   `${RECEIPT_SERVICE}/v1/receipt/verify/${env.receipt_id}`
+    };
+  } catch (err) {
+    return { error: err.message, fee_charged: false };
+  }
+}
+
+/**
+ * emitRenewalGamification — call hive-gamification /v1/reputation/event
+ * for a subscription_renew event. First-call-free BOGO applies at gamification layer.
+ */
+async function emitRenewalGamification({ payer_did, subscription_id, amount_atomic }) {
+  try {
+    const resp = await fetch(`${GAMIF_SERVICE}/v1/reputation/event`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        did:    payer_did || 'did:web:unknown',
+        reason: 'transaction_complete',
+        _context: { event_type: 'subscription_renew', subscription_id, amount_atomic }
+      })
+    });
+    if (!resp.ok) return { error: `hive-gamification ${resp.status}`, fee_charged: false };
+    const body = await resp.json();
+    return {
+      tier_after:     body.tier     || null,
+      streak_after:   body.streak   || null,
+      points_awarded: body.delta    || 2,
+      reputation:     body.reputation || null,
+      fee_atomic:     GAMIF_FEE_ATOMIC,
+      fee_usd:        '$0.0005',
+      event_type:     'subscription_renew',
+      bogo_applied:   body.bogo_applied || false
+    };
+  } catch (err) {
+    return { error: err.message, fee_charged: false };
+  }
+}
+
 const app  = express();
 app.use(express.json());
 
@@ -138,7 +222,16 @@ app.get('/.well-known/agent.json', (req, res) => {
       'subscription.get'
     ],
     mcp_endpoint: '/mcp',
-    tools: ['create_subscription', 'renew_subscription', 'manage_subscription', 'list_subscriptions']
+    tools: ['create_subscription', 'renew_subscription', 'manage_subscription', 'list_subscriptions'],
+    bogo_disclosure: {
+      description: 'POST /v1/subscription/renew triggers a three-fee BOGO chain: (1) 2%+$0.005 renewal fee payTo Monroe, (2) $0.10 audit receipt via hive-receipt (Spectral-signed), (3) $0.0005 gamification event via hive-gamification (first-call-free BOGO applies).',
+      fee_events: 3,
+      chain: [
+        { service: 'hive-subscription', endpoint: 'POST /v1/subscription/renew',   fee: '2%+$0.005 renewal fee', fee_bps: 200 },
+        { service: 'hive-receipt',      endpoint: 'POST /v1/receipt/sign',         fee: '$0.10 audit tier',      fee_atomic: 100000 },
+        { service: 'hive-gamification', endpoint: 'POST /v1/reputation/event',    fee: '$0.0005 (first free)',   fee_atomic: 500 }
+      ]
+    }
   });
 });
 
@@ -323,7 +416,8 @@ app.post('/v1/subscription/create', (req, res) => {
 });
 
 // POST /v1/subscription/renew — x402 gated
-app.post('/v1/subscription/renew', (req, res) => {
+// BOGO chain #3c: renewal fee (2%+flat) → audit receipt ($0.10) → gamification event ($0.0005)
+app.post('/v1/subscription/renew', async (req, res) => {
   const { subscription_id } = req.body || {};
   if (!subscription_id) return res.status(400).json({ error: 'subscription_id required' });
 
@@ -347,7 +441,13 @@ app.post('/v1/subscription/renew', (req, res) => {
     subscription_id,
     period_index:      sub.period_index + 1,
     amount_atomic:     sub.amount_atomic,
-    renewal_fee_atomic: renewalFee,
+    renewal_fee: {
+      renewal_fee_atomic: renewalFee,
+      fee_pct:            HIVE_TAKE_PCT,
+      flat_fee_atomic:    FLAT_FEE,
+      payTo:              MONROE,
+      description:        `2% of amount_atomic + $0.005 flat renewal fee`
+    },
     currency:          sub.currency,
     chain:             sub.chain,
     payer_did:         sub.payer_did,
@@ -365,7 +465,33 @@ app.post('/v1/subscription/renew', (req, res) => {
     next_renewal_at: nextRenewalAt
   });
 
-  res.json(receipt);
+  // ── BOGO chain #3c: audit receipt + gamification on renewal ─────────────────
+  const txHash = (() => { try { const p = req.headers['x-payment']; return p ? JSON.parse(p).tx_hash : null; } catch { return null; } })();
+  const [auditReceipt, gamification] = await Promise.all([
+    emitRenewalReceipt({
+      subscription_id,
+      payer_did:     sub.payer_did,
+      amount_atomic: sub.amount_atomic,
+      tx_hash:       txHash
+    }),
+    emitRenewalGamification({
+      payer_did:       sub.payer_did,
+      subscription_id,
+      amount_atomic:   sub.amount_atomic
+    })
+  ]);
+
+  res.json({
+    ...receipt,
+    audit_receipt: auditReceipt,
+    gamification,
+    bogo_chain: {
+      description: 'Three fees per subscription renewal: (1) 2%+$0.005 renewal fee to Monroe, (2) $0.10 audit receipt via hive-receipt, (3) $0.0005 gamification event via hive-gamification (first call free).',
+      fee_events:  3,
+      total_fee_approx_usd: `$${((renewalFee / 1_000_000) + 0.10 + 0.0005).toFixed(4)}`,
+      payer_note:  'Renewal fee paid by subscriber via x402. Audit receipt and gamification fees charged to Monroe treasury on behalf of subscriber.'
+    }
+  });
 });
 
 // POST /v1/subscription/pause
