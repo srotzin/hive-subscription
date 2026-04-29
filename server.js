@@ -6,14 +6,14 @@ import {
   listSubscriptionsByDid, recordRenewal, getRenewal
 } from './lib/storage.js';
 
-// ── BOGO chain: downstream service URLs ──────────────────────────────────────────
+// -- BOGO chain: downstream service URLs ------------------------------------------
 const RECEIPT_SERVICE  = process.env.RECEIPT_SERVICE_URL  || 'https://hive-receipt.onrender.com';
 const GAMIF_SERVICE    = process.env.GAMIFICATION_SERVICE_URL || 'https://hive-gamification.onrender.com';
-const AUDIT_FEE_ATOMIC = 100000; // $0.10 USDC atomic — audit tier
+const AUDIT_FEE_ATOMIC = 100000; // $0.10 USDC atomic  -  audit tier
 const GAMIF_FEE_ATOMIC = 500;    // $0.0005 per gamification event
 
 /**
- * emitRenewalReceipt — call hive-receipt /v1/receipt/sign?tier=audit after a
+ * emitRenewalReceipt  -  call hive-receipt /v1/receipt/sign?tier=audit after a
  * successful subscription renewal. Best-effort; never fails the primary response.
  */
 async function emitRenewalReceipt({ subscription_id, payer_did, amount_atomic, tx_hash }) {
@@ -24,7 +24,7 @@ async function emitRenewalReceipt({ subscription_id, payer_did, amount_atomic, t
       amount:  AUDIT_FEE_ATOMIC,
       asset:   'USDC',
       network: 'base',
-      note:    'Audit receipt for subscription renewal — charged to Monroe treasury on behalf of payer.'
+      note:    'Audit receipt for subscription renewal - charged to Monroe treasury on behalf of payer.'
     });
     const resp = await fetch(`${RECEIPT_SERVICE}/v1/receipt/sign?tier=audit`, {
       method:  'POST',
@@ -59,7 +59,7 @@ async function emitRenewalReceipt({ subscription_id, payer_did, amount_atomic, t
 }
 
 /**
- * emitRenewalGamification — call hive-gamification /v1/reputation/event
+ * emitRenewalGamification  -  call hive-gamification /v1/reputation/event
  * for a subscription_renew event. First-call-free BOGO applies at gamification layer.
  */
 async function emitRenewalGamification({ payer_did, subscription_id, amount_atomic }) {
@@ -93,7 +93,7 @@ async function emitRenewalGamification({ payer_did, subscription_id, amount_atom
 const app  = express();
 app.use(express.json());
 
-// ─── CORS middleware ──────────────────────────────────────────────────────────
+// --- CORS middleware ----------------------------------------------------------
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -117,7 +117,7 @@ const FLAT_FEE       = 5000;              // $0.005 = 5000 micro-USDC
 // Init Spectral keypair (file-persisted at data/spectral.key or from env)
 initKeypair();
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+// --- helpers ------------------------------------------------------------------
 
 function calcRenewalFee(amount_atomic) {
   // Renewal fee: 2% of amount + $0.005 flat
@@ -134,7 +134,7 @@ function make402Challenge(amount_atomic, resource, description) {
     maxAmountRequired: String(amount_atomic),
     payTo:             MONROE,
     resource,
-    description:       description || 'Hive subscription renewal — x402 gated.',
+    description:       description || 'Hive subscription renewal  -  x402 gated.',
     mimeType:          'application/json'
   };
 }
@@ -153,10 +153,10 @@ function require402(req, res, amount_atomic, resource, description) {
   return true;
 }
 
-// ─── wellknown / health ───────────────────────────────────────────────────────
+// --- wellknown / health -------------------------------------------------------
 
 
-// ─── Root ─────────────────────────────────────────────────────────────────────
+// --- Root ---------------------------------------------------------------------
 app.get('/', (_req, res) => {
   res.json({
     service:      'hive-subscription',
@@ -249,7 +249,7 @@ app.get('/.well-known/mcp.json', (_req, res) => {
   });
 });
 
-// ─── MCP JSON-RPC ─────────────────────────────────────────────────────────────
+// --- MCP JSON-RPC -------------------------------------------------------------
 
 app.post('/mcp', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body || {};
@@ -264,7 +264,7 @@ app.post('/mcp', async (req, res) => {
         tools: [
           {
             name: 'create_subscription',
-            description: 'Create a recurring x402 subscription between a payer DID and a merchant DID. Returns a subscription_id and an ed25519-signed renewal contract. No payment required at create — payer pays on each renewal.',
+            description: 'Create a recurring x402 subscription between a payer DID and a merchant DID. Returns a subscription_id and an ed25519-signed renewal contract. No payment required at create  -  payer pays on each renewal.',
             inputSchema: {
               type: 'object',
               required: ['payer_did', 'merchant_did', 'amount_atomic', 'period_seconds'],
@@ -280,13 +280,13 @@ app.post('/mcp', async (req, res) => {
           },
           {
             name: 'renew_subscription',
-            description: 'Renew a subscription for the current period. Requires x402 payment of (amount_atomic × 2%) + $0.005 flat. Idempotent on (subscription_id, period_index). Returns a Spectral-signed renewal receipt.',
+            description: 'Renew a subscription for the current period. Requires x402 payment of (amount_atomic x 2%) + $0.005 flat. Idempotent on (subscription_id, period_index). Returns a Spectral-signed renewal receipt.',
             inputSchema: {
               type: 'object',
               required: ['subscription_id'],
               properties: {
                 subscription_id: { type: 'string', description: 'Subscription ID returned by create_subscription.' },
-                x_payment:       { type: 'string', description: 'X-PAYMENT header value (base64 encoded x402 payment proof). Pass via HTTP header X-PAYMENT — this field is informational.' }
+                x_payment:       { type: 'string', description: 'X-PAYMENT header value (base64 encoded x402 payment proof). Pass via HTTP header X-PAYMENT  -  this field is informational.' }
               }
             }
           },
@@ -357,7 +357,7 @@ app.post('/mcp', async (req, res) => {
         note.x402_challenge = make402Challenge(
           calcRenewalFee(sub.amount_atomic),
           `/v1/subscription/renew`,
-          `Renew subscription ${subscription_id} — period ${sub.period_index + 1}`
+          `Renew subscription ${subscription_id}  -  period ${sub.period_index + 1}`
         );
       }
       return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(note) }] } });
@@ -392,7 +392,7 @@ app.post('/mcp', async (req, res) => {
   return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
 });
 
-// ─── REST endpoints ───────────────────────────────────────────────────────────
+// --- REST endpoints -----------------------------------------------------------
 
 // POST /v1/subscription/create
 app.post('/v1/subscription/create', (req, res) => {
@@ -415,8 +415,8 @@ app.post('/v1/subscription/create', (req, res) => {
   res.status(201).json(sub);
 });
 
-// POST /v1/subscription/renew — x402 gated
-// BOGO chain #3c: renewal fee (2%+flat) → audit receipt ($0.10) → gamification event ($0.0005)
+// POST /v1/subscription/renew  -  x402 gated
+// BOGO chain #3c: renewal fee (2%+flat) -> audit receipt ($0.10) -> gamification event ($0.0005)
 app.post('/v1/subscription/renew', async (req, res) => {
   const { subscription_id } = req.body || {};
   if (!subscription_id) return res.status(400).json({ error: 'subscription_id required' });
@@ -424,7 +424,7 @@ app.post('/v1/subscription/renew', async (req, res) => {
   const sub = getSubscription(subscription_id);
   if (!sub) return res.status(404).json({ error: 'subscription not found' });
   if (sub.status === 'cancelled') return res.status(410).json({ error: 'subscription cancelled' });
-  if (sub.status === 'paused')    return res.status(409).json({ error: 'subscription paused — resume first' });
+  if (sub.status === 'paused')    return res.status(409).json({ error: 'subscription paused  -  resume first' });
 
   const renewalFee = calcRenewalFee(sub.amount_atomic);
 
@@ -433,7 +433,7 @@ app.post('/v1/subscription/renew', async (req, res) => {
   if (existing) return res.json({ ...existing, idempotent: true });
 
   // x402 gate
-  if (!require402(req, res, renewalFee, '/v1/subscription/renew', `Renew subscription ${subscription_id} — period ${sub.period_index + 1}. Amount: ${renewalFee} micro-USDC.`)) return;
+  if (!require402(req, res, renewalFee, '/v1/subscription/renew', `Renew subscription ${subscription_id}  -  period ${sub.period_index + 1}. Amount: ${renewalFee} micro-USDC.`)) return;
 
   const now           = new Date();
   const nextRenewalAt = new Date(now.getTime() + sub.period_seconds * 1000).toISOString();
@@ -465,7 +465,7 @@ app.post('/v1/subscription/renew', async (req, res) => {
     next_renewal_at: nextRenewalAt
   });
 
-  // ── BOGO chain #3c: audit receipt + gamification on renewal ─────────────────
+  // -- BOGO chain #3c: audit receipt + gamification on renewal -----------------
   const txHash = (() => { try { const p = req.headers['x-payment']; return p ? JSON.parse(p).tx_hash : null; } catch { return null; } })();
   const [auditReceipt, gamification] = await Promise.all([
     emitRenewalReceipt({
@@ -549,9 +549,9 @@ app.get('/v1/subscription/:id', (req, res) => {
   res.json(sub);
 });
 
-// ─── server start ─────────────────────────────────────────────────────────────
+// --- server start -------------------------------------------------------------
 
-// ── well-known / x402 ─────────────────────────────────────────────────────────
+// -- well-known / x402 ---------------------------------------------------------
 
 app.get('/.well-known/x402', (_req, res) => {
   res.json({
@@ -679,7 +679,7 @@ app.get('/.well-known/x402', (_req, res) => {
   });
 });
 
-// ── well-known / agent-card.json (A2A 0.1) ────────────────────────────────────
+// -- well-known / agent-card.json (A2A 0.1) ------------------------------------
 
 app.get('/.well-known/agent-card.json', (req, res) => {
   const pubkey = (typeof getPublicKeyB64 === 'function')
@@ -725,7 +725,7 @@ app.get('/.well-known/agent-card.json', (req, res) => {
   });
 });
 
-// ── well-known / ap2.json (AP2 0.1) ───────────────────────────────────────────
+// -- well-known / ap2.json (AP2 0.1) -------------------------------------------
 
 app.get('/.well-known/ap2.json', (_req, res) => {
   res.json({
@@ -768,7 +768,7 @@ app.get('/.well-known/ap2.json', (_req, res) => {
   });
 });
 
-// ── well-known / openapi.json (OpenAPI 3.0.3 + x-pricing + x-payment-info) ────
+// -- well-known / openapi.json (OpenAPI 3.0.3 + x-pricing + x-payment-info) ----
 
 app.get('/.well-known/openapi.json', (_req, res) => {
   res.json({
@@ -805,7 +805,7 @@ app.get('/.well-known/openapi.json', (_req, res) => {
           },
           responses: {
             '200': { description: 'Success.' },
-            '402': { description: 'Payment Required — x402 challenge.' },
+            '402': { description: 'Payment Required  -  x402 challenge.' },
             '400': { description: 'Validation error.' }
           }
         }
@@ -845,7 +845,7 @@ app.get('/.well-known/openapi.json', (_req, res) => {
 });
 
 
-// ─── DID document ─────────────────────────────────────────────────────────────
+// --- DID document -------------------------------------------------------------
 app.get('/.well-known/did.json', (_req, res) => {
   const did = 'did:web:hive-subscription.onrender.com';
   const der = Buffer.from(getPublicKeyB64(), 'base64');
